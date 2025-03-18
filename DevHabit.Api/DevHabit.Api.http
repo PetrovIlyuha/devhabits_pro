@@ -1,0 +1,7 @@
+@DevHabit.Api_HostAddress = http://localhost:4000
+@DevHabit = variable value
+
+GET {{DevHabit.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
