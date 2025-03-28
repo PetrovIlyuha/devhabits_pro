@@ -1,3 +1,10 @@
+using DevHabit.Api.Database;
+using DevHabit.Api.Extensions;
+using DevHabit.Api.Middleware;
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -6,13 +13,35 @@ using OpenTelemetry.Trace;
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    options.ReturnHttpNotAcceptable = true;
+})
+    .AddNewtonsoftJson()
+    .AddXmlSerializerFormatters();
+
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        context.ProblemDetails.Extensions.TryAdd("requestId", context.HttpContext.TraceIdentifier);
+    };
+});
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Database"),
+    pgOptions => pgOptions.MigrationsHistoryTable(HistoryRepository.DefaultTableName, Schemas.Application))
+    .UseSnakeCaseNamingConvention());
+
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
-    .WithTracing(tracing => tracing.AddHttpClientInstrumentation().AddHttpClientInstrumentation())
+    .WithTracing(tracing => tracing.AddHttpClientInstrumentation().AddHttpClientInstrumentation().AddNpgsql())
     .WithMetrics(metrics => metrics.AddHttpClientInstrumentation().AddAspNetCoreInstrumentation().AddRuntimeInstrumentation())
     .UseOtlpExporter();
 builder.Logging.AddOpenTelemetry(options =>
@@ -30,9 +59,12 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-}
+    await app.ApplyMigrationsAsync();
+} 
 
 app.UseHttpsRedirection();
+
+app.UseExceptionHandler();
 
 app.MapControllers();
 
